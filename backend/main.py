@@ -28,8 +28,19 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="AI Development Playground API", version="1.0.0")
 
 # CORS middleware
-frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://91.99.196.35:3000")
-print(f"[CORS] Allowing origin: {frontend_origin}")
+frontend_origin = os.getenv("FRONTEND_ORIGIN")
+if not frontend_origin:
+    frontend_origin = "http://91.99.196.35:3000"
+    print(f"[CORS] FRONTEND_ORIGIN not set, using default: {frontend_origin}")
+else:
+    print(f"[CORS] Using FRONTEND_ORIGIN from env: {frontend_origin}")
+
+# Fallback to '*' if still not set
+if not frontend_origin:
+    frontend_origin = "*"
+    print("[CORS] WARNING: No frontend origin set, using '*'")
+
+print(f"[CORS] Final allow_origins: {frontend_origin}")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[frontend_origin],
@@ -381,7 +392,8 @@ class ImageManagerCLI:
                 print(f"✓ Successfully pulled image: {image}")
                 
         except Exception as e:
-            raise Exception(f"Failed to pull image: {e}")
+            print(f"✗ Failed to pull image: {e}")
+            raise Exception(f"Failed to pull image {image}: {e}")
 
 # Initialize Docker client
 docker_client = init_docker_client()
@@ -437,6 +449,15 @@ class DeploymentHistory(BaseModel):
     started_at: datetime
     stopped_at: Optional[datetime] = None
     status: str
+
+# Fix MongoDB ObjectId serialization
+print('[DEBUG] fix_mongo_obj loaded')
+def fix_mongo_obj(obj):
+    obj = dict(obj)
+    if "_id" in obj:
+        obj["_id"] = str(obj["_id"])
+    print(f"[Mongo] Fixed object: {obj}")
+    return obj
 
 # Authentication
 def verify_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -592,6 +613,7 @@ class ContainerManager:
             
             # When constructing URLs for deployed apps, use the public host
             PUBLIC_HOST = os.getenv("PUBLIC_HOST", "91.99.196.35")
+            print(f"[URL] PUBLIC_HOST is: {PUBLIC_HOST}")
             url = f"http://{PUBLIC_HOST}:{host_port}"
             print(f"[URL] Constructed app URL: {url}")
             
