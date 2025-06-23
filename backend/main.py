@@ -467,33 +467,91 @@ class ContainerManager:
     async def deploy_app(self, app_name: str, repository: str, port: int) -> Dict[str, Any]:
         """Deploy an application from GitHub repository"""
         try:
+            print(f"=== DEPLOYING APP: {app_name} ===")
+            print(f"Repository: {repository}")
+            print(f"Port: {port}")
+            print(f"Client type: {type(self.client)}")
+            
             # Generate unique container name
             container_name = f"ai-playground-{app_name}-{int(time.time())}"
+            print(f"Container name: {container_name}")
+            
+            # Debug: Check if client has images attribute
+            print(f"Client has images attribute: {hasattr(self.client, 'images')}")
+            if hasattr(self.client, 'images'):
+                print(f"Images attribute type: {type(self.client.images)}")
+                if callable(self.client.images):
+                    print("Images is callable, calling it...")
+                    images_manager = self.client.images()
+                    print(f"Images manager type: {type(images_manager)}")
+                else:
+                    print("Images is not callable, using directly...")
+                    images_manager = self.client.images
+                    print(f"Images manager type: {type(images_manager)}")
+            else:
+                print("Client does not have images attribute!")
+                raise Exception("Docker client does not have images manager")
             
             # Pull the image first
             print(f"Pulling image: {repository}:latest")
-            self.client.images.pull(f"{repository}:latest")
+            try:
+                images_manager.pull(f"{repository}:latest")
+                print(f"✓ Successfully pulled image: {repository}:latest")
+            except Exception as e:
+                print(f"✗ Failed to pull image: {e}")
+                raise Exception(f"Failed to pull image {repository}:latest: {e}")
+            
+            # Debug: Check if client has containers attribute
+            print(f"Client has containers attribute: {hasattr(self.client, 'containers')}")
+            if hasattr(self.client, 'containers'):
+                print(f"Containers attribute type: {type(self.client.containers)}")
+                if callable(self.client.containers):
+                    print("Containers is callable, calling it...")
+                    containers_manager = self.client.containers()
+                    print(f"Containers manager type: {type(containers_manager)}")
+                else:
+                    print("Containers is not callable, using directly...")
+                    containers_manager = self.client.containers
+                    print(f"Containers manager type: {type(containers_manager)}")
+            else:
+                print("Client does not have containers attribute!")
+                raise Exception("Docker client does not have containers manager")
             
             # Run the container
-            container = self.client.containers.run(
-                image=f"{repository}:latest",
-                name=container_name,
-                ports={f'{port}/tcp': None},  # Let Docker assign a random port
-                detach=True,
-                environment={
-                    "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
-                    "NODE_ENV": "production"
-                },
-                mem_limit="512m",  # Limit memory usage
-                cpu_period=100000,
-                cpu_quota=50000,  # Limit CPU usage
-                restart_policy={"Name": "no"}
-            )
+            print(f"Running container with image: {repository}:latest")
+            try:
+                container = containers_manager.run(
+                    image=f"{repository}:latest",
+                    name=container_name,
+                    ports={f'{port}/tcp': None},  # Let Docker assign a random port
+                    detach=True,
+                    environment={
+                        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
+                        "NODE_ENV": "production"
+                    },
+                    mem_limit="512m",  # Limit memory usage
+                    cpu_period=100000,
+                    cpu_quota=50000,  # Limit CPU usage
+                    restart_policy={"Name": "no"}
+                )
+                print(f"✓ Container started successfully")
+                print(f"Container type: {type(container)}")
+                print(f"Container ID: {container.id}")
+            except Exception as e:
+                print(f"✗ Failed to run container: {e}")
+                raise Exception(f"Failed to run container: {e}")
             
             # Get the assigned port
-            container.reload()
-            ports = container.ports
-            host_port = ports[f'{port}/tcp'][0]['HostPort']
+            print("Getting container port mapping...")
+            try:
+                container.reload()
+                ports = container.ports
+                print(f"Container ports: {ports}")
+                host_port = ports[f'{port}/tcp'][0]['HostPort']
+                print(f"Assigned host port: {host_port}")
+            except Exception as e:
+                print(f"✗ Failed to get container ports: {e}")
+                raise Exception(f"Failed to get container port mapping: {e}")
             
             # Store container info
             self.active_containers[app_name] = {
@@ -503,6 +561,7 @@ class ContainerManager:
                 "started_at": datetime.now(),
                 "last_accessed": datetime.now()
             }
+            print(f"✓ Stored container info for {app_name}")
             
             # Save to MongoDB
             deployment_data = {
@@ -514,6 +573,7 @@ class ContainerManager:
                 "status": "running"
             }
             await save_deployment_history(deployment_data)
+            print(f"✓ Saved deployment history to MongoDB")
             
             logger.info(f"Deployed {app_name} on port {host_port}")
             
@@ -526,24 +586,55 @@ class ContainerManager:
             
         except Exception as e:
             logger.error(f"Failed to deploy {app_name}: {e}")
+            print(f"✗ Deployment failed for {app_name}: {e}")
             raise HTTPException(status_code=500, detail=f"Deployment failed: {str(e)}")
     
     async def stop_app(self, app_name: str) -> Dict[str, Any]:
         """Stop and remove an application container"""
         try:
+            print(f"=== STOPPING APP: {app_name} ===")
+            
             if app_name not in self.active_containers:
+                print(f"✗ App {app_name} not found in active containers")
                 raise HTTPException(status_code=404, detail="App not found")
             
             container_info = self.active_containers[app_name]
-            container = self.client.containers.get(container_info["container_id"])
+            print(f"Container info: {container_info}")
             
+            # Debug: Check if client has containers attribute
+            print(f"Client has containers attribute: {hasattr(self.client, 'containers')}")
+            if hasattr(self.client, 'containers'):
+                print(f"Containers attribute type: {type(self.client.containers)}")
+                if callable(self.client.containers):
+                    print("Containers is callable, calling it...")
+                    containers_manager = self.client.containers()
+                    print(f"Containers manager type: {type(containers_manager)}")
+                else:
+                    print("Containers is not callable, using directly...")
+                    containers_manager = self.client.containers
+                    print(f"Containers manager type: {type(containers_manager)}")
+            else:
+                print("Client does not have containers attribute!")
+                raise Exception("Docker client does not have containers manager")
+            
+            print(f"Getting container: {container_info['container_id']}")
+            container = containers_manager.get(container_info["container_id"])
+            print(f"Container type: {type(container)}")
+            
+            print("Stopping container...")
             container.stop(timeout=10)
+            print("✓ Container stopped")
+            
+            print("Removing container...")
             container.remove()
+            print("✓ Container removed")
             
             # Update MongoDB
             await update_deployment_stop(app_name, datetime.now())
+            print("✓ Updated MongoDB deployment record")
             
             del self.active_containers[app_name]
+            print(f"✓ Removed {app_name} from active containers")
             
             logger.info(f"Stopped and removed {app_name}")
             
@@ -551,25 +642,51 @@ class ContainerManager:
             
         except Exception as e:
             logger.error(f"Failed to stop {app_name}: {e}")
+            print(f"✗ Failed to stop {app_name}: {e}")
             raise HTTPException(status_code=500, detail=f"Stop failed: {str(e)}")
     
     async def get_app_status(self, app_name: str) -> Dict[str, Any]:
         """Get the status of an application"""
+        print(f"=== GETTING STATUS FOR: {app_name} ===")
+        
         if app_name in self.active_containers:
             container_info = self.active_containers[app_name]
+            print(f"Container info: {container_info}")
+            
             try:
-                container = self.client.containers.get(container_info["container_id"])
+                # Debug: Check if client has containers attribute
+                print(f"Client has containers attribute: {hasattr(self.client, 'containers')}")
+                if hasattr(self.client, 'containers'):
+                    print(f"Containers attribute type: {type(self.client.containers)}")
+                    if callable(self.client.containers):
+                        print("Containers is callable, calling it...")
+                        containers_manager = self.client.containers()
+                        print(f"Containers manager type: {type(containers_manager)}")
+                    else:
+                        print("Containers is not callable, using directly...")
+                        containers_manager = self.client.containers
+                        print(f"Containers manager type: {type(containers_manager)}")
+                else:
+                    print("Client does not have containers attribute!")
+                    raise Exception("Docker client does not have containers manager")
+                
+                print(f"Getting container: {container_info['container_id']}")
+                container = containers_manager.get(container_info["container_id"])
+                print(f"Container type: {type(container)}")
+                
                 return {
                     "status": "running",
                     "url": f"http://localhost:{container_info['host_port']}",
                     "started_at": container_info["started_at"],
                     "last_accessed": container_info["last_accessed"]
                 }
-            except:
+            except Exception as e:
+                print(f"✗ Container not found, removing from active list: {e}")
                 # Container not found, remove from active list
                 del self.active_containers[app_name]
                 return {"status": "stopped"}
         
+        print(f"App {app_name} not in active containers, status: stopped")
         return {"status": "stopped"}
     
     async def update_last_accessed(self, app_name: str):
