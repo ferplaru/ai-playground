@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y gcc curl docker.io && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y gcc curl docker.io libcurl4-openssl-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
