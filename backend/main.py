@@ -16,6 +16,7 @@ import logging
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+import subprocess
 
 # Load environment variables
 load_dotenv()
@@ -47,7 +48,7 @@ db = mongo_client.ai_playground
 
 # Initialize Docker client
 def init_docker_client():
-    """Initialize Docker client with comprehensive debugging"""
+    """Initialize Docker client using CLI approach instead of Python SDK"""
     try:
         print("=== DOCKER CLIENT INITIALIZATION DEBUG ===")
         print("DOCKER_HOST:", os.environ.get("DOCKER_HOST"))
@@ -69,136 +70,222 @@ def init_docker_client():
                 except Exception as e:
                     print(f"  Error checking socket: {e}")
         
-        # Try different initialization methods
-        client = None
-        
-        # Method 1: Try explicit unix socket
-        print("\n--- Method 1: Explicit unix socket ---")
+        # Test Docker CLI directly
+        print("\n--- Testing Docker CLI ---")
         try:
-            client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
-            print("✓ Success with unix:///var/run/docker.sock")
-            return client
-        except Exception as e:
-            print(f"✗ Failed with unix:///var/run/docker.sock: {e}")
-        
-        # Method 2: Try alternative socket path
-        print("\n--- Method 2: Alternative socket path ---")
-        try:
-            client = docker.DockerClient(base_url='unix:///run/docker.sock')
-            print("✓ Success with unix:///run/docker.sock")
-            return client
-        except Exception as e:
-            print(f"✗ Failed with unix:///run/docker.sock: {e}")
-        
-        # Method 3: Try from_env() with explicit socket
-        print("\n--- Method 3: from_env with socket ---")
-        try:
-            # Temporarily set DOCKER_HOST to unix socket
-            old_docker_host = os.environ.get("DOCKER_HOST")
-            os.environ["DOCKER_HOST"] = "unix:///var/run/docker.sock"
-            client = docker.from_env()
-            print("✓ Success with from_env() and DOCKER_HOST=unix:///var/run/docker.sock")
-            # Restore original DOCKER_HOST
-            if old_docker_host:
-                os.environ["DOCKER_HOST"] = old_docker_host
+            import subprocess
+            import json
+            
+            # Test docker version
+            result = subprocess.run(['docker', 'version', '--format', 'json'], 
+                                  capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                version_info = json.loads(result.stdout)
+                print(f"✓ Docker CLI test successful!")
+                print(f"  Docker version: {version_info.get('Server', {}).get('Version', 'unknown')}")
+                print(f"  API version: {version_info.get('Server', {}).get('ApiVersion', 'unknown')}")
+                
+                # Return a CLI-based client wrapper
+                return DockerCLIClient()
             else:
-                os.environ.pop("DOCKER_HOST", None)
-            return client
+                print(f"✗ Docker CLI test failed: {result.stderr}")
+                return None
+                
+        except subprocess.TimeoutExpired:
+            print("✗ Docker CLI test timed out")
+            return None
         except Exception as e:
-            print(f"✗ Failed with from_env() and DOCKER_HOST: {e}")
-            # Restore original DOCKER_HOST
-            if old_docker_host:
-                os.environ["DOCKER_HOST"] = old_docker_host
-            else:
-                os.environ.pop("DOCKER_HOST", None)
-        
-        # Method 4: Try from_env() without any DOCKER_HOST
-        print("\n--- Method 4: from_env() without DOCKER_HOST ---")
-        try:
-            # Ensure DOCKER_HOST is not set
-            os.environ.pop("DOCKER_HOST", None)
-            client = docker.from_env()
-            print("✓ Success with from_env() without DOCKER_HOST")
-            return client
-        except Exception as e:
-            print(f"✗ Failed with from_env() without DOCKER_HOST: {e}")
-        
-        # Method 5: Try with requests_unixsocket explicitly
-        print("\n--- Method 5: Check requests_unixsocket ---")
-        try:
-            import requests_unixsocket
-            print("✓ requests_unixsocket imported successfully")
-            
-            # Try to get version, but don't fail if it doesn't exist
-            try:
-                version = getattr(requests_unixsocket, '__version__', 'unknown')
-                print(f"✓ requests_unixsocket version: {version}")
-            except:
-                print("✓ requests_unixsocket version: unknown (no __version__ attribute)")
-            
-            print("✓ requests_unixsocket is available")
-            
-            # Try again with explicit unix socket
-            client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
-            print("✓ Success with requests_unixsocket and unix socket")
-            return client
-        except ImportError as e:
-            print(f"✗ requests_unixsocket not available: {e}")
-        except Exception as e:
-            print(f"✗ Failed with requests_unixsocket: {e}")
-            print(f"  Error type: {type(e).__name__}")
-            print(f"  Error details: {str(e)}")
-        
-        # Method 6: Try with requests and unix socket adapter directly
-        print("\n--- Method 6: Direct requests with unix socket ---")
-        try:
-            import requests_unixsocket
-            import requests
-            
-            # Create a session with unix socket adapter
-            session = requests_unixsocket.Session()
-            
-            # Test the connection directly
-            response = session.get('http+unix://%2Fvar%2Frun%2Fdocker.sock/version')
-            print(f"✓ Direct socket test successful: {response.status_code}")
-            
-            # If direct test works, try Docker client again
-            client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
-            print("✓ Success with direct socket test and Docker client")
-            return client
-        except ImportError as e:
-            print(f"✗ requests_unixsocket not available for direct test: {e}")
-        except Exception as e:
-            print(f"✗ Failed with direct socket test: {e}")
-            print(f"  Error type: {type(e).__name__}")
-            print(f"  Error details: {str(e)}")
-        
-        # Method 7: Try with lower-level APIClient
-        print("\n--- Method 7: Lower-level APIClient ---")
-        try:
-            from docker import APIClient
-            
-            client = APIClient(base_url='unix:///var/run/docker.sock')
-            # Test the connection
-            version = client.version()
-            print(f"✓ APIClient test successful: {version.get('ApiVersion', 'unknown')}")
-            
-            # Convert to DockerClient for compatibility
-            from docker import DockerClient
-            docker_client = DockerClient(base_url='unix:///var/run/docker.sock')
-            print("✓ Success with APIClient and converted to DockerClient")
-            return docker_client
-        except Exception as e:
-            print(f"✗ Failed with APIClient: {e}")
-            print(f"  Error type: {type(e).__name__}")
-            print(f"  Error details: {str(e)}")
-        
-        print("\n=== ALL METHODS FAILED ===")
-        return None
+            print(f"✗ Docker CLI test failed: {e}")
+            return None
         
     except Exception as e:
         logger.error(f"Failed to initialize Docker client: {e}")
         return None
+
+class DockerCLIClient:
+    """Docker client that uses CLI commands instead of Python SDK"""
+    
+    def __init__(self):
+        self.docker_cmd = ['docker']
+    
+    def version(self):
+        """Get Docker version information"""
+        try:
+            result = subprocess.run(self.docker_cmd + ['version', '--format', 'json'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+            else:
+                raise Exception(f"Docker version failed: {result.stderr}")
+        except Exception as e:
+            raise Exception(f"Failed to get Docker version: {e}")
+    
+    def containers(self):
+        """Return a containers manager"""
+        return ContainerManagerCLI(self.docker_cmd)
+    
+    def images(self):
+        """Return an images manager"""
+        return ImageManagerCLI(self.docker_cmd)
+
+class ContainerManagerCLI:
+    """Container manager using CLI commands"""
+    
+    def __init__(self, docker_cmd):
+        self.docker_cmd = docker_cmd
+    
+    def run(self, image, name=None, ports=None, detach=False, environment=None, 
+            mem_limit=None, cpu_period=None, cpu_quota=None, restart_policy=None):
+        """Run a container using CLI"""
+        try:
+            cmd = self.docker_cmd + ['run']
+            
+            if name:
+                cmd.extend(['--name', name])
+            
+            if ports:
+                for port_mapping in ports.items():
+                    container_port = port_mapping[0]
+                    host_port = port_mapping[1]
+                    if host_port is None:
+                        cmd.extend(['-p', container_port])
+                    else:
+                        cmd.extend(['-p', f"{host_port}:{container_port}"])
+            
+            if detach:
+                cmd.append('-d')
+            
+            if environment:
+                for key, value in environment.items():
+                    cmd.extend(['-e', f"{key}={value}"])
+            
+            if mem_limit:
+                cmd.extend(['--memory', mem_limit])
+            
+            if cpu_period and cpu_quota:
+                cmd.extend(['--cpu-period', str(cpu_period), '--cpu-quota', str(cpu_quota)])
+            
+            if restart_policy:
+                cmd.extend(['--restart', restart_policy['Name']])
+            
+            cmd.append(image)
+            
+            print(f"Running command: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                container_id = result.stdout.strip()
+                return ContainerCLI(self.docker_cmd, container_id)
+            else:
+                raise Exception(f"Failed to run container: {result.stderr}")
+                
+        except Exception as e:
+            raise Exception(f"Failed to run container: {e}")
+    
+    def get(self, container_id):
+        """Get a container by ID"""
+        return ContainerCLI(self.docker_cmd, container_id)
+    
+    def list(self, all=False):
+        """List containers"""
+        try:
+            cmd = self.docker_cmd + ['ps']
+            if all:
+                cmd.append('-a')
+            cmd.extend(['--format', 'json'])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                containers = []
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        containers.append(json.loads(line))
+                return containers
+            else:
+                raise Exception(f"Failed to list containers: {result.stderr}")
+                
+        except Exception as e:
+            raise Exception(f"Failed to list containers: {e}")
+
+class ContainerCLI:
+    """Container wrapper using CLI commands"""
+    
+    def __init__(self, docker_cmd, container_id):
+        self.docker_cmd = docker_cmd
+        self.id = container_id
+    
+    def reload(self):
+        """Reload container information"""
+        # No-op for CLI version, info is fetched on demand
+        pass
+    
+    def stop(self, timeout=10):
+        """Stop the container"""
+        try:
+            cmd = self.docker_cmd + ['stop', '--time', str(timeout), self.id]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+            
+            if result.returncode != 0:
+                raise Exception(f"Failed to stop container: {result.stderr}")
+                
+        except Exception as e:
+            raise Exception(f"Failed to stop container: {e}")
+    
+    def remove(self):
+        """Remove the container"""
+        try:
+            cmd = self.docker_cmd + ['rm', self.id]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode != 0:
+                raise Exception(f"Failed to remove container: {result.stderr}")
+                
+        except Exception as e:
+            raise Exception(f"Failed to remove container: {e}")
+    
+    @property
+    def ports(self):
+        """Get container port mappings"""
+        try:
+            cmd = self.docker_cmd + ['port', self.id]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                ports = {}
+                for line in result.stdout.strip().split('\n'):
+                    if line:
+                        parts = line.split(' -> ')
+                        if len(parts) == 2:
+                            container_port = parts[0]
+                            host_mapping = parts[1]
+                            ports[container_port] = [{'HostPort': host_mapping.split(':')[1], 'HostIp': host_mapping.split(':')[0]}]
+                return ports
+            else:
+                return {}
+                
+        except Exception as e:
+            print(f"Failed to get container ports: {e}")
+            return {}
+
+class ImageManagerCLI:
+    """Image manager using CLI commands"""
+    
+    def __init__(self, docker_cmd):
+        self.docker_cmd = docker_cmd
+    
+    def pull(self, image):
+        """Pull an image"""
+        try:
+            cmd = self.docker_cmd + ['pull', image]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                raise Exception(f"Failed to pull image: {result.stderr}")
+                
+        except Exception as e:
+            raise Exception(f"Failed to pull image: {e}")
 
 # Initialize Docker client
 docker_client = init_docker_client()
@@ -206,7 +293,7 @@ if docker_client:
     try:
         # Test the client
         version = docker_client.version()
-        print(f"✓ Docker client test successful! API version: {version.get('ApiVersion', 'unknown')}")
+        print(f"✓ Docker client test successful! API version: {version.get('Server', {}).get('ApiVersion', 'unknown')}")
     except Exception as e:
         print(f"✗ Docker client test failed: {e}")
         docker_client = None
@@ -302,7 +389,11 @@ class ContainerManager:
             # Generate unique container name
             container_name = f"ai-playground-{app_name}-{int(time.time())}"
             
-            # Pull and run the container
+            # Pull the image first
+            print(f"Pulling image: {repository}:latest")
+            self.client.images.pull(f"{repository}:latest")
+            
+            # Run the container
             container = self.client.containers.run(
                 image=f"{repository}:latest",
                 name=container_name,
@@ -320,7 +411,8 @@ class ContainerManager:
             
             # Get the assigned port
             container.reload()
-            host_port = container.ports[f'{port}/tcp'][0]['HostPort']
+            ports = container.ports
+            host_port = ports[f'{port}/tcp'][0]['HostPort']
             
             # Store container info
             self.active_containers[app_name] = {
@@ -575,8 +667,8 @@ async def health_check():
         try:
             version = docker_client.version()
             docker_status["client_test"] = "success"
-            docker_status["api_version"] = version.get("ApiVersion", "unknown")
-            docker_status["docker_version"] = version.get("Version", "unknown")
+            docker_status["api_version"] = version.get("Server", {}).get("ApiVersion", "unknown")
+            docker_status["docker_version"] = version.get("Server", {}).get("Version", "unknown")
         except Exception as e:
             docker_status["client_test"] = f"failed: {str(e)}"
     
