@@ -9,7 +9,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - AUTH_PASSWORD=${AUTH_PASSWORD:-default_password}
+      - AUTH_PASSWORD=${AUTH_PASSWORD}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_USERNAME=${GITHUB_USERNAME}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -31,7 +31,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://91.99.196.35:8000
     depends_on:
       - backend
     restart: unless-stopped

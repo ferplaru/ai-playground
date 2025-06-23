@@ -73,9 +73,9 @@ deploy_local() {
     # Check if services are running
     if docker-compose ps | grep -q "Up"; then
         print_status "Services are running!"
-        print_status "Dashboard: http://localhost:3000"
-        print_status "API: http://localhost:8000"
-        print_status "API Docs: http://localhost:8000/docs"
+        print_status "Dashboard: http://91.99.196.35:3000"
+        print_status "API: http://91.99.196.35:8000"
+        print_status "API Docs: http://91.99.196.35:8000/docs"
     else
         print_error "Some services failed to start. Check logs with: docker-compose logs"
         exit 1
