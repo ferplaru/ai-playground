@@ -357,10 +357,13 @@ class ImageManagerCLI:
         """Pull an image"""
         try:
             cmd = self.docker_cmd + ['pull', image]
+            print(f"Running pull command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
                 raise Exception(f"Failed to pull image: {result.stderr}")
+            else:
+                print(f"✓ Successfully pulled image: {image}")
                 
         except Exception as e:
             raise Exception(f"Failed to pull image: {e}")
