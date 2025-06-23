@@ -28,9 +28,11 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="AI Development Playground API", version="1.0.0")
 
 # CORS middleware
+frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://91.99.196.35:3000")
+print(f"[CORS] Allowing origin: {frontend_origin}")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[frontend_origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -570,12 +572,17 @@ class ContainerManager:
             await save_deployment_history(deployment_data)
             print(f"✓ Saved deployment history to MongoDB")
             
+            # When constructing URLs for deployed apps, use the public host
+            PUBLIC_HOST = os.getenv("PUBLIC_HOST", "91.99.196.35")
+            url = f"http://{PUBLIC_HOST}:{host_port}"
+            print(f"[URL] Constructed app URL: {url}")
+            
             logger.info(f"Deployed {app_name} on port {host_port}")
             
             return {
                 "status": "success",
                 "app_name": app_name,
-                "url": f"http://localhost:{host_port}",
+                "url": url,
                 "container_id": container.id
             }
             
@@ -908,10 +915,18 @@ async def get_active_apps():
     
     return {"active_apps": active_apps}
 
+def fix_mongo_obj(obj):
+    obj = dict(obj)
+    if "_id" in obj:
+        obj["_id"] = str(obj["_id"])
+    print(f"[Mongo] Fixed object: {obj}")
+    return obj
+
 @app.get("/history", dependencies=[Depends(verify_auth)])
 async def get_deployment_history():
-    """Get deployment history"""
     history = await fetch_deployment_history(limit=20)
+    # Fix ObjectId serialization
+    history = [fix_mongo_obj(item) for item in history]
     return {"deployments": history}
 
 @app.get("/health")
