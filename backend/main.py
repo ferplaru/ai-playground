@@ -407,6 +407,10 @@ class DeployRequest(BaseModel):
     repository: str
     port: int = 8000
 
+class BuildRequest(BaseModel):
+    app_name: str
+    repository: str
+
 class AuthRequest(BaseModel):
     password: str
 
@@ -476,30 +480,21 @@ class ContainerManager:
             container_name = f"ai-playground-{app_name}-{int(time.time())}"
             print(f"Container name: {container_name}")
             
-            # Debug: Check if client has images attribute
-            print(f"Client has images attribute: {hasattr(self.client, 'images')}")
-            if hasattr(self.client, 'images'):
-                print(f"Images attribute type: {type(self.client.images)}")
-                if callable(self.client.images):
-                    print("Images is callable, calling it...")
-                    images_manager = self.client.images()
-                    print(f"Images manager type: {type(images_manager)}")
-                else:
-                    print("Images is not callable, using directly...")
-                    images_manager = self.client.images
-                    print(f"Images manager type: {type(images_manager)}")
-            else:
-                print("Client does not have images attribute!")
-                raise Exception("Docker client does not have images manager")
+            # Determine if we need to build the image or pull it
+            image_name = f"{repository}:latest"
             
-            # Pull the image first
-            print(f"Pulling image: {repository}:latest")
-            try:
-                images_manager.pull(f"{repository}:latest")
-                print(f"✓ Successfully pulled image: {repository}:latest")
-            except Exception as e:
-                print(f"✗ Failed to pull image: {e}")
-                raise Exception(f"Failed to pull image {repository}:latest: {e}")
+            # Check if it's a public image or needs building
+            if "/" in repository and not repository.startswith("localhost/"):
+                # Try to pull first, if it fails, build from GitHub
+                try:
+                    print(f"Attempting to pull public image: {image_name}")
+                    await self._pull_image(image_name)
+                except Exception as e:
+                    print(f"Pull failed, building from GitHub: {e}")
+                    image_name = await self._build_from_github(repository, app_name)
+            else:
+                # Local image, try to pull
+                await self._pull_image(image_name)
             
             # Debug: Check if client has containers attribute
             print(f"Client has containers attribute: {hasattr(self.client, 'containers')}")
@@ -518,10 +513,10 @@ class ContainerManager:
                 raise Exception("Docker client does not have containers manager")
             
             # Run the container
-            print(f"Running container with image: {repository}:latest")
+            print(f"Running container with image: {image_name}")
             try:
                 container = containers_manager.run(
-                    image=f"{repository}:latest",
+                    image=image_name,
                     name=container_name,
                     ports={f'{port}/tcp': None},  # Let Docker assign a random port
                     detach=True,
@@ -588,6 +583,77 @@ class ContainerManager:
             logger.error(f"Failed to deploy {app_name}: {e}")
             print(f"✗ Deployment failed for {app_name}: {e}")
             raise HTTPException(status_code=500, detail=f"Deployment failed: {str(e)}")
+    
+    async def _pull_image(self, image_name: str):
+        """Pull a Docker image"""
+        print(f"Pulling image: {image_name}")
+        try:
+            # Debug: Check if client has images attribute
+            print(f"Client has images attribute: {hasattr(self.client, 'images')}")
+            if hasattr(self.client, 'images'):
+                print(f"Images attribute type: {type(self.client.images)}")
+                if callable(self.client.images):
+                    print("Images is callable, calling it...")
+                    images_manager = self.client.images()
+                    print(f"Images manager type: {type(images_manager)}")
+                else:
+                    print("Images is not callable, using directly...")
+                    images_manager = self.client.images
+                    print(f"Images manager type: {type(images_manager)}")
+            else:
+                print("Client does not have images attribute!")
+                raise Exception("Docker client does not have images manager")
+            
+            images_manager.pull(image_name)
+            print(f"✓ Successfully pulled image: {image_name}")
+        except Exception as e:
+            print(f"✗ Failed to pull image: {e}")
+            raise Exception(f"Failed to pull image {image_name}: {e}")
+    
+    async def _build_from_github(self, repository: str, app_name: str) -> str:
+        """Build Docker image from GitHub repository"""
+        try:
+            print(f"=== BUILDING IMAGE FROM GITHUB: {repository} ===")
+            
+            # Create a unique build context directory
+            import tempfile
+            import shutil
+            
+            build_dir = tempfile.mkdtemp(prefix=f"ai-playground-{app_name}-")
+            print(f"Build directory: {build_dir}")
+            
+            # Clone the repository
+            import subprocess
+            
+            clone_cmd = ['git', 'clone', f'https://github.com/{repository}.git', build_dir]
+            print(f"Cloning repository: {' '.join(clone_cmd)}")
+            
+            result = subprocess.run(clone_cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                raise Exception(f"Failed to clone repository: {result.stderr}")
+            
+            print(f"✓ Repository cloned successfully")
+            
+            # Build the Docker image
+            image_name = f"ai-playground-{app_name}:latest"
+            build_cmd = ['docker', 'build', '-t', image_name, build_dir]
+            print(f"Building image: {' '.join(build_cmd)}")
+            
+            result = subprocess.run(build_cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                raise Exception(f"Failed to build image: {result.stderr}")
+            
+            print(f"✓ Image built successfully: {image_name}")
+            
+            # Clean up build directory
+            shutil.rmtree(build_dir)
+            print(f"✓ Cleaned up build directory")
+            
+            return image_name
+            
+        except Exception as e:
+            print(f"✗ Failed to build from GitHub: {e}")
+            raise Exception(f"Failed to build image from GitHub {repository}: {e}")
     
     async def stop_app(self, app_name: str) -> Dict[str, Any]:
         """Stop and remove an application container"""
@@ -788,6 +854,31 @@ async def deploy_app(deploy_request: DeployRequest):
     )
     
     return result
+
+@app.post("/build", dependencies=[Depends(verify_auth)])
+async def build_image(build_request: BuildRequest):
+    """Build a Docker image from GitHub repository"""
+    if not docker_client:
+        raise HTTPException(status_code=500, detail="Docker not available")
+    
+    try:
+        # Build the image
+        image_name = await container_manager._build_from_github(
+            build_request.repository,
+            build_request.app_name
+        )
+        
+        return {
+            "status": "success",
+            "app_name": build_request.app_name,
+            "repository": build_request.repository,
+            "image_name": image_name,
+            "message": f"Image {image_name} built successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to build image for {build_request.app_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Build failed: {str(e)}")
 
 @app.post("/stop/{app_name}", dependencies=[Depends(verify_auth)])
 async def stop_app(app_name: str):
