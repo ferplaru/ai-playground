@@ -331,18 +331,31 @@ class ContainerCLI:
         try:
             cmd = self.docker_cmd + ['port', self.id]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
+            print(f"[DockerCLI] docker port output: {result.stdout}")
             if result.returncode == 0:
                 ports = {}
                 for line in result.stdout.strip().split('\n'):
                     if line:
+                        # Example: 8000/tcp -> 0.0.0.0:49153
                         parts = line.split(' -> ')
                         if len(parts) == 2:
                             container_port = parts[0]
                             host_mapping = parts[1]
-                            ports[container_port] = [{'HostPort': host_mapping.split(':')[1], 'HostIp': host_mapping.split(':')[0]}]
+                            if ':' in host_mapping:
+                                host_ip, host_port = host_mapping.rsplit(':', 1)
+                                ports[container_port] = [{
+                                    'HostPort': host_port,
+                                    'HostIp': host_ip
+                                }]
+                            else:
+                                ports[container_port] = [{
+                                    'HostPort': '',
+                                    'HostIp': host_mapping
+                                }]
+                print(f"[DockerCLI] Parsed ports: {ports}")
                 return ports
             else:
+                print(f"[DockerCLI] Failed to get ports: {result.stderr}")
                 return {}
                 
         except Exception as e:
@@ -544,7 +557,12 @@ class ContainerManager:
                 container.reload()
                 ports = container.ports
                 print(f"Container ports: {ports}")
-                host_port = ports[f'{port}/tcp'][0]['HostPort']
+                # Find the first non-empty host port
+                host_port = ''
+                for port_key, port_list in ports.items():
+                    if port_list and port_list[0]['HostPort']:
+                        host_port = port_list[0]['HostPort']
+                        break
                 print(f"Assigned host port: {host_port}")
             except Exception as e:
                 print(f"✗ Failed to get container ports: {e}")
@@ -915,19 +933,38 @@ async def get_active_apps():
     
     return {"active_apps": active_apps}
 
-def fix_mongo_obj(obj):
-    obj = dict(obj)
-    if "_id" in obj:
-        obj["_id"] = str(obj["_id"])
-    print(f"[Mongo] Fixed object: {obj}")
-    return obj
+@app.get("/running", dependencies=[Depends(verify_auth)])
+async def get_running_apps():
+    """List all currently running containers started by this platform"""
+    running = []
+    for app_name, info in container_manager.active_containers.items():
+        running.append({
+            "app_name": app_name,
+            "container_id": info["container_id"],
+            "host_port": info["host_port"],
+            "started_at": info["started_at"],
+            "last_accessed": info["last_accessed"]
+        })
+    print(f"[Running] Active containers: {running}")
+    return {"running": running}
 
 @app.get("/history", dependencies=[Depends(verify_auth)])
 async def get_deployment_history():
     history = await fetch_deployment_history(limit=20)
     # Fix ObjectId serialization
     history = [fix_mongo_obj(item) for item in history]
-    return {"deployments": history}
+    # Add running apps
+    running = []
+    for app_name, info in container_manager.active_containers.items():
+        running.append({
+            "app_name": app_name,
+            "container_id": info["container_id"],
+            "host_port": info["host_port"],
+            "started_at": info["started_at"],
+            "last_accessed": info["last_accessed"]
+        })
+    print(f"[History] Active containers: {running}")
+    return {"deployments": history, "running": running}
 
 @app.get("/health")
 async def health_check():
