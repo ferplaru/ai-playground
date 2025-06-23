@@ -38,6 +38,7 @@ app.add_middleware(
 # Security
 security = HTTPBearer()
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "default_password")
+print("Loaded AUTH_PASSWORD:", AUTH_PASSWORD)
 
 # Initialize MongoDB client
 mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -46,7 +47,14 @@ db = mongo_client.ai_playground
 
 # Initialize Docker client
 try:
+    print("DOCKER_HOST:", os.environ.get("DOCKER_HOST"))
+    print("DOCKER_API_VERSION:", os.environ.get("DOCKER_API_VERSION"))
+    print("DOCKER_TLS_VERIFY:", os.environ.get("DOCKER_TLS_VERIFY"))
+    print("DOCKER_CERT_PATH:", os.environ.get("DOCKER_CERT_PATH"))
+    print("Checking /var/run/docker.sock exists:", os.path.exists("/var/run/docker.sock"))
+    print("Checking /run/docker.sock exists:", os.path.exists("/run/docker.sock"))
     docker_client = docker.from_env()
+    print("Docker client initialized successfully!")
 except Exception as e:
     logger.error(f"Failed to initialize Docker client: {e}")
     docker_client = None
