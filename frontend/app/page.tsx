@@ -42,7 +42,7 @@ export default function Dashboard() {
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<'apps' | 'history'>('apps')
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://91.99.196.35:8000'
 
   useEffect(() => {
     // Check if already authenticated
