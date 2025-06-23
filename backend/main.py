@@ -173,6 +173,26 @@ def init_docker_client():
             print(f"  Error type: {type(e).__name__}")
             print(f"  Error details: {str(e)}")
         
+        # Method 7: Try with lower-level APIClient
+        print("\n--- Method 7: Lower-level APIClient ---")
+        try:
+            from docker import APIClient
+            
+            client = APIClient(base_url='unix:///var/run/docker.sock')
+            # Test the connection
+            version = client.version()
+            print(f"✓ APIClient test successful: {version.get('ApiVersion', 'unknown')}")
+            
+            # Convert to DockerClient for compatibility
+            from docker import DockerClient
+            docker_client = DockerClient(base_url='unix:///var/run/docker.sock')
+            print("✓ Success with APIClient and converted to DockerClient")
+            return docker_client
+        except Exception as e:
+            print(f"✗ Failed with APIClient: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            print(f"  Error details: {str(e)}")
+        
         print("\n=== ALL METHODS FAILED ===")
         return None
         
