@@ -46,18 +46,118 @@ mongo_client = AsyncIOMotorClient(mongodb_url)
 db = mongo_client.ai_playground
 
 # Initialize Docker client
-try:
-    print("DOCKER_HOST:", os.environ.get("DOCKER_HOST"))
-    print("DOCKER_API_VERSION:", os.environ.get("DOCKER_API_VERSION"))
-    print("DOCKER_TLS_VERIFY:", os.environ.get("DOCKER_TLS_VERIFY"))
-    print("DOCKER_CERT_PATH:", os.environ.get("DOCKER_CERT_PATH"))
-    print("Checking /var/run/docker.sock exists:", os.path.exists("/var/run/docker.sock"))
-    print("Checking /run/docker.sock exists:", os.path.exists("/run/docker.sock"))
-    docker_client = docker.from_env()
-    print("Docker client initialized successfully!")
-except Exception as e:
-    logger.error(f"Failed to initialize Docker client: {e}")
-    docker_client = None
+def init_docker_client():
+    """Initialize Docker client with comprehensive debugging"""
+    try:
+        print("=== DOCKER CLIENT INITIALIZATION DEBUG ===")
+        print("DOCKER_HOST:", os.environ.get("DOCKER_HOST"))
+        print("DOCKER_API_VERSION:", os.environ.get("DOCKER_API_VERSION"))
+        print("DOCKER_TLS_VERIFY:", os.environ.get("DOCKER_TLS_VERIFY"))
+        print("DOCKER_CERT_PATH:", os.environ.get("DOCKER_CERT_PATH"))
+        
+        # Check socket paths
+        sock_paths = ["/var/run/docker.sock", "/run/docker.sock"]
+        for sock_path in sock_paths:
+            exists = os.path.exists(sock_path)
+            print(f"Checking {sock_path} exists: {exists}")
+            if exists:
+                try:
+                    # Check if socket is accessible
+                    stat = os.stat(sock_path)
+                    print(f"  Socket mode: {oct(stat.st_mode)}")
+                    print(f"  Socket owner: {stat.st_uid}")
+                except Exception as e:
+                    print(f"  Error checking socket: {e}")
+        
+        # Try different initialization methods
+        client = None
+        
+        # Method 1: Try explicit unix socket
+        print("\n--- Method 1: Explicit unix socket ---")
+        try:
+            client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+            print("✓ Success with unix:///var/run/docker.sock")
+            return client
+        except Exception as e:
+            print(f"✗ Failed with unix:///var/run/docker.sock: {e}")
+        
+        # Method 2: Try alternative socket path
+        print("\n--- Method 2: Alternative socket path ---")
+        try:
+            client = docker.DockerClient(base_url='unix:///run/docker.sock')
+            print("✓ Success with unix:///run/docker.sock")
+            return client
+        except Exception as e:
+            print(f"✗ Failed with unix:///run/docker.sock: {e}")
+        
+        # Method 3: Try from_env() with explicit socket
+        print("\n--- Method 3: from_env with socket ---")
+        try:
+            # Temporarily set DOCKER_HOST to unix socket
+            old_docker_host = os.environ.get("DOCKER_HOST")
+            os.environ["DOCKER_HOST"] = "unix:///var/run/docker.sock"
+            client = docker.from_env()
+            print("✓ Success with from_env() and DOCKER_HOST=unix:///var/run/docker.sock")
+            # Restore original DOCKER_HOST
+            if old_docker_host:
+                os.environ["DOCKER_HOST"] = old_docker_host
+            else:
+                os.environ.pop("DOCKER_HOST", None)
+            return client
+        except Exception as e:
+            print(f"✗ Failed with from_env() and DOCKER_HOST: {e}")
+            # Restore original DOCKER_HOST
+            if old_docker_host:
+                os.environ["DOCKER_HOST"] = old_docker_host
+            else:
+                os.environ.pop("DOCKER_HOST", None)
+        
+        # Method 4: Try from_env() without any DOCKER_HOST
+        print("\n--- Method 4: from_env() without DOCKER_HOST ---")
+        try:
+            # Ensure DOCKER_HOST is not set
+            os.environ.pop("DOCKER_HOST", None)
+            client = docker.from_env()
+            print("✓ Success with from_env() without DOCKER_HOST")
+            return client
+        except Exception as e:
+            print(f"✗ Failed with from_env() without DOCKER_HOST: {e}")
+        
+        # Method 5: Try with requests_unixsocket explicitly
+        print("\n--- Method 5: Check requests_unixsocket ---")
+        try:
+            import requests_unixsocket
+            print(f"✓ requests_unixsocket version: {requests_unixsocket.__version__}")
+            print("✓ requests_unixsocket is available")
+            
+            # Try again with explicit unix socket
+            client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+            print("✓ Success with requests_unixsocket and unix socket")
+            return client
+        except ImportError as e:
+            print(f"✗ requests_unixsocket not available: {e}")
+        except Exception as e:
+            print(f"✗ Failed with requests_unixsocket: {e}")
+        
+        print("\n=== ALL METHODS FAILED ===")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize Docker client: {e}")
+        return None
+
+# Initialize Docker client
+docker_client = init_docker_client()
+if docker_client:
+    try:
+        # Test the client
+        version = docker_client.version()
+        print(f"✓ Docker client test successful! API version: {version.get('ApiVersion', 'unknown')}")
+    except Exception as e:
+        print(f"✗ Docker client test failed: {e}")
+        docker_client = None
+else:
+    print("✗ Docker client initialization failed completely")
 
 # Initialize Redis for session management
 redis_client = redis.Redis(
@@ -381,13 +481,58 @@ async def get_deployment_history():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with detailed Docker debugging"""
+    docker_status = {
+        "available": docker_client is not None,
+        "socket_paths": {},
+        "environment": {},
+        "client_test": "not_tested"
+    }
+    
+    # Check socket paths
+    sock_paths = ["/var/run/docker.sock", "/run/docker.sock"]
+    for sock_path in sock_paths:
+        exists = os.path.exists(sock_path)
+        docker_status["socket_paths"][sock_path] = {
+            "exists": exists,
+            "accessible": False,
+            "mode": None,
+            "owner": None
+        }
+        if exists:
+            try:
+                stat = os.stat(sock_path)
+                docker_status["socket_paths"][sock_path]["accessible"] = True
+                docker_status["socket_paths"][sock_path]["mode"] = oct(stat.st_mode)
+                docker_status["socket_paths"][sock_path]["owner"] = stat.st_uid
+            except Exception as e:
+                docker_status["socket_paths"][sock_path]["error"] = str(e)
+    
+    # Check environment variables
+    docker_status["environment"] = {
+        "DOCKER_HOST": os.environ.get("DOCKER_HOST"),
+        "DOCKER_API_VERSION": os.environ.get("DOCKER_API_VERSION"),
+        "DOCKER_TLS_VERIFY": os.environ.get("DOCKER_TLS_VERIFY"),
+        "DOCKER_CERT_PATH": os.environ.get("DOCKER_CERT_PATH")
+    }
+    
+    # Test Docker client if available
+    if docker_client:
+        try:
+            version = docker_client.version()
+            docker_status["client_test"] = "success"
+            docker_status["api_version"] = version.get("ApiVersion", "unknown")
+            docker_status["docker_version"] = version.get("Version", "unknown")
+        except Exception as e:
+            docker_status["client_test"] = f"failed: {str(e)}"
+    
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "docker_available": docker_client is not None,
+        "docker": docker_status,
         "github_available": github_client is not None,
-        "mongodb_available": mongo_client is not None
+        "mongodb_available": mongo_client is not None,
+        "redis_available": redis_client is not None
     }
 
 if __name__ == "__main__":
