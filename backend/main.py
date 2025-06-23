@@ -127,7 +127,15 @@ def init_docker_client():
         print("\n--- Method 5: Check requests_unixsocket ---")
         try:
             import requests_unixsocket
-            print(f"✓ requests_unixsocket version: {requests_unixsocket.__version__}")
+            print("✓ requests_unixsocket imported successfully")
+            
+            # Try to get version, but don't fail if it doesn't exist
+            try:
+                version = getattr(requests_unixsocket, '__version__', 'unknown')
+                print(f"✓ requests_unixsocket version: {version}")
+            except:
+                print("✓ requests_unixsocket version: unknown (no __version__ attribute)")
+            
             print("✓ requests_unixsocket is available")
             
             # Try again with explicit unix socket
@@ -138,6 +146,32 @@ def init_docker_client():
             print(f"✗ requests_unixsocket not available: {e}")
         except Exception as e:
             print(f"✗ Failed with requests_unixsocket: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            print(f"  Error details: {str(e)}")
+        
+        # Method 6: Try with requests and unix socket adapter directly
+        print("\n--- Method 6: Direct requests with unix socket ---")
+        try:
+            import requests_unixsocket
+            import requests
+            
+            # Create a session with unix socket adapter
+            session = requests_unixsocket.Session()
+            
+            # Test the connection directly
+            response = session.get('http+unix://%2Fvar%2Frun%2Fdocker.sock/version')
+            print(f"✓ Direct socket test successful: {response.status_code}")
+            
+            # If direct test works, try Docker client again
+            client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+            print("✓ Success with direct socket test and Docker client")
+            return client
+        except ImportError as e:
+            print(f"✗ requests_unixsocket not available for direct test: {e}")
+        except Exception as e:
+            print(f"✗ Failed with direct socket test: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            print(f"  Error details: {str(e)}")
         
         print("\n=== ALL METHODS FAILED ===")
         return None
