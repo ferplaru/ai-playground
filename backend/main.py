@@ -76,20 +76,44 @@ def init_docker_client():
             import subprocess
             import json
             
-            # Test docker version
-            result = subprocess.run(['docker', 'version', '--format', 'json'], 
+            # First test if docker command works at all
+            result = subprocess.run(['docker', '--version'], 
                                   capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0:
-                version_info = json.loads(result.stdout)
-                print(f"✓ Docker CLI test successful!")
-                print(f"  Docker version: {version_info.get('Server', {}).get('Version', 'unknown')}")
-                print(f"  API version: {version_info.get('Server', {}).get('ApiVersion', 'unknown')}")
-                
-                # Return a CLI-based client wrapper
-                return DockerCLIClient()
+                print(f"✓ Docker CLI available: {result.stdout.strip()}")
             else:
-                print(f"✗ Docker CLI test failed: {result.stderr}")
+                print(f"✗ Docker CLI not available: {result.stderr}")
+                return None
+            
+            # Test docker version with JSON format
+            result = subprocess.run(['docker', 'version', '--format', 'json'], 
+                                  capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    version_info = json.loads(result.stdout)
+                    print(f"✓ Docker CLI test successful!")
+                    print(f"  Docker version: {version_info.get('Server', {}).get('Version', 'unknown')}")
+                    print(f"  API version: {version_info.get('Server', {}).get('ApiVersion', 'unknown')}")
+                    
+                    # Return a CLI-based client wrapper
+                    return DockerCLIClient()
+                except json.JSONDecodeError as e:
+                    print(f"✗ Docker version returned invalid JSON: {result.stdout}")
+                    print(f"  JSON error: {e}")
+                    
+                    # Try without JSON format as fallback
+                    result = subprocess.run(['docker', 'version'], 
+                                          capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        print(f"✓ Docker CLI works (non-JSON format): {result.stdout[:100]}...")
+                        return DockerCLIClient()
+                    else:
+                        print(f"✗ Docker version failed: {result.stderr}")
+                        return None
+            else:
+                print(f"✗ Docker version failed: {result.stderr}")
                 return None
                 
         except subprocess.TimeoutExpired:
@@ -112,10 +136,34 @@ class DockerCLIClient:
     def version(self):
         """Get Docker version information"""
         try:
+            # Try JSON format first
             result = subprocess.run(self.docker_cmd + ['version', '--format', 'json'], 
                                   capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    return json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    pass  # Fall back to non-JSON format
+            
+            # Fallback to non-JSON format
+            result = subprocess.run(self.docker_cmd + ['version'], 
+                                  capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
-                return json.loads(result.stdout)
+                # Parse the text output manually
+                lines = result.stdout.strip().split('\n')
+                version_info = {'Client': {}, 'Server': {}}
+                
+                current_section = None
+                for line in lines:
+                    if line.startswith('Client:'):
+                        current_section = 'Client'
+                    elif line.startswith('Server:'):
+                        current_section = 'Server'
+                    elif ':' in line and current_section:
+                        key, value = line.split(':', 1)
+                        version_info[current_section][key.strip()] = value.strip()
+                
+                return version_info
             else:
                 raise Exception(f"Docker version failed: {result.stderr}")
         except Exception as e:
@@ -190,6 +238,7 @@ class ContainerManagerCLI:
     def list(self, all=False):
         """List containers"""
         try:
+            # Try JSON format first
             cmd = self.docker_cmd + ['ps']
             if all:
                 cmd.append('-a')
@@ -197,11 +246,40 @@ class ContainerManagerCLI:
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
+            if result.returncode == 0 and result.stdout.strip():
+                try:
+                    containers = []
+                    for line in result.stdout.strip().split('\n'):
+                        if line:
+                            containers.append(json.loads(line))
+                    return containers
+                except json.JSONDecodeError:
+                    pass  # Fall back to non-JSON format
+            
+            # Fallback to non-JSON format
+            cmd = self.docker_cmd + ['ps']
+            if all:
+                cmd.append('-a')
+            cmd.extend(['--format', 'table {{.ID}}\t{{.Image}}\t{{.Command}}\t{{.CreatedAt}}\t{{.Status}}\t{{.Ports}}\t{{.Names}}'])
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
             if result.returncode == 0:
                 containers = []
-                for line in result.stdout.strip().split('\n'):
-                    if line:
-                        containers.append(json.loads(line))
+                lines = result.stdout.strip().split('\n')[1:]  # Skip header
+                for line in lines:
+                    if line.strip():
+                        parts = line.split('\t')
+                        if len(parts) >= 7:
+                            containers.append({
+                                'Id': parts[0],
+                                'Image': parts[1],
+                                'Command': parts[2],
+                                'CreatedAt': parts[3],
+                                'Status': parts[4],
+                                'Ports': parts[5],
+                                'Names': parts[6]
+                            })
                 return containers
             else:
                 raise Exception(f"Failed to list containers: {result.stderr}")
