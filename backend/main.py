@@ -55,7 +55,7 @@ AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "default_password")
 print("Loaded AUTH_PASSWORD:", AUTH_PASSWORD)
 
 # Initialize MongoDB client
-mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+mongodb_url = os.getenv("MONGODB_URL", "mongodb://91.99.196.35:27017")
 mongo_client = AsyncIOMotorClient(mongodb_url)
 db = mongo_client.ai_playground
 
@@ -410,7 +410,7 @@ else:
 
 # Initialize Redis for session management
 redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
+    host=os.getenv("REDIS_HOST", "91.99.196.35"),
     port=int(os.getenv("REDIS_PORT", 6379)),
     decode_responses=True
 )
@@ -789,7 +789,7 @@ class ContainerManager:
                 
                 return {
                     "status": "running",
-                    "url": f"http://localhost:{container_info['host_port']}",
+                    "url": f"http://91.99.196.35:{container_info['host_port']}",
                     "started_at": container_info["started_at"],
                     "last_accessed": container_info["last_accessed"]
                 }
