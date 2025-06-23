@@ -929,8 +929,9 @@ async def build_image(build_request: BuildRequest):
 
 @app.post("/stop/{app_name}", dependencies=[Depends(verify_auth)])
 async def stop_app(app_name: str):
-    """Stop an application"""
+    print(f"[Stop] Stopping app: {app_name}")
     result = await container_manager.stop_app(app_name)
+    print(f"[Stop] Result: {result}")
     return result
 
 @app.get("/status/{app_name}", dependencies=[Depends(verify_auth)])
@@ -1043,6 +1044,22 @@ async def health_check():
         "mongodb_available": mongo_client is not None,
         "redis_available": redis_client is not None
     }
+
+@app.delete("/image/{image_name}", dependencies=[Depends(verify_auth)])
+async def delete_image(image_name: str):
+    """Delete a built Docker image by name"""
+    print(f"[Delete Image] Attempting to delete image: {image_name}")
+    try:
+        result = subprocess.run(["docker", "rmi", image_name], capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            print(f"[Delete Image] Successfully deleted image: {image_name}")
+            return {"status": "success", "message": f"Image {image_name} deleted"}
+        else:
+            print(f"[Delete Image] Failed: {result.stderr}")
+            return {"status": "error", "message": result.stderr}
+    except Exception as e:
+        print(f"[Delete Image] Exception: {e}")
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
