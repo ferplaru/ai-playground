@@ -856,6 +856,9 @@ async def get_apps():
         
         apps = []
         for repo in repos:
+            if repo.name == "ai-playground":
+                print("[GitHub] Skipping main app repo: ai-playground")
+                continue
             # Check if repo has dockerfile or docker-compose
             try:
                 contents = repo.get_contents("")
